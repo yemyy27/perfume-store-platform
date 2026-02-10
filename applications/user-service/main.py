@@ -1,16 +1,12 @@
-"""
-User Service - Authentication and user management
-"""
-
 from fastapi import FastAPI, HTTPException, Depends, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, EmailStr
-from typing import Optional, List
+from typing import List
 from datetime import datetime, timedelta
 import uvicorn
 import os
 import jwt
-from passlib.context import CryptContext
+import bcrypt
 
 app = FastAPI(title="User Service", version="1.0.0")
 
@@ -18,7 +14,6 @@ SECRET_KEY = os.environ.get("JWT_SECRET_KEY", "your-secret-key")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 security = HTTPBearer()
 users_db = []
 
@@ -42,23 +37,15 @@ class Token(BaseModel):
     access_token: str
     token_type: str
 
-def truncate_password(password: str) -> bytes:
-    """Truncate password to 72 BYTES (not characters) for bcrypt"""
-    password_bytes = password.encode('utf-8')
-    if len(password_bytes) > 72:
-        # Truncate to 72 bytes
-        password_bytes = password_bytes[:72]
-    return password_bytes
-
 def hash_password(password: str) -> str:
-    """Hash password with proper byte truncation"""
-    password_bytes = truncate_password(password)
-    return pwd_context.hash(password_bytes)
+    pwd_bytes = password.encode('utf-8')[:72]
+    salt = bcrypt.gensalt()
+    hashed = bcrypt.hashpw(pwd_bytes, salt)
+    return hashed.decode('utf-8')
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """Verify password with proper byte truncation"""
-    password_bytes = truncate_password(plain_password)
-    return pwd_context.verify(password_bytes, hashed_password)
+    pwd_bytes = plain_password.encode('utf-8')[:72]
+    return bcrypt.checkpw(pwd_bytes, hashed_password.encode('utf-8'))
 
 def create_access_token(data: dict) -> str:
     to_encode = data.copy()
@@ -70,8 +57,8 @@ def get_user_by_email(email: str):
     return next((u for u in users_db if u["email"] == email), None)
 
 async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
-    token = credentials.credentials
     try:
+        token = credentials.credentials
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         email = payload.get("sub")
         if not email:
@@ -129,23 +116,15 @@ async def get_me(current_user = Depends(get_current_user)):
         "is_active": current_user["is_active"]
     }
 
-@app.get("/api/users", response_model=List[User])
+@app.get("/api/users")
 async def list_users():
-    return [{
-        "id": u["id"],
-        "email": u["email"],
-        "full_name": u["full_name"],
-        "created_at": u["created_at"],
-        "is_active": u["is_active"]
-    } for u in users_db]
+    return [{"id": u["id"], "email": u["email"], "full_name": u["full_name"], 
+             "created_at": u["created_at"], "is_active": u["is_active"]} 
+            for u in users_db]
 
 @app.get("/")
 async def root():
-    return {
-        "service": "User Service",
-        "version": "1.0.0",
-        "status": "running"
-    }
+    return {"service": "User Service", "version": "1.0.0", "status": "running"}
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
