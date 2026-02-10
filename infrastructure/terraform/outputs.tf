@@ -40,3 +40,14 @@ output "network_summary" {
     nat_enabled = true
   }
 }
+
+# Cloud Run & Container Registry Outputs
+output "artifact_registry_repository" {
+  description = "Artifact Registry repository for containers"
+  value       = google_artifact_registry_repository.containers.name
+}
+
+output "artifact_registry_url" {
+  description = "URL for pushing container images"
+  value       = "${var.region}-docker.pkg.dev/${var.project_id}/${google_artifact_registry_repository.containers.repository_id}"
+}
