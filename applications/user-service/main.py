@@ -5,7 +5,7 @@ FastAPI microservice with JWT authentication
 
 from fastapi import FastAPI, HTTPException, Depends, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, field_validator
 from typing import Optional, List
 from datetime import datetime, timedelta
 import uvicorn
@@ -36,6 +36,15 @@ class UserRegister(BaseModel):
     email: EmailStr
     password: str
     full_name: str
+    
+    @field_validator('password')
+    @classmethod
+    def validate_password(cls, v):
+        if len(v) > 72:
+            raise ValueError('Password cannot be longer than 72 characters')
+        if len(v) < 6:
+            raise ValueError('Password must be at least 6 characters')
+        return v
 
 class UserLogin(BaseModel):
     email: EmailStr
@@ -57,12 +66,16 @@ class TokenData(BaseModel):
 
 # Helper functions
 def hash_password(password: str) -> str:
-    """Hash a password"""
-    return pwd_context.hash(password)
+    """Hash a password - truncate to 72 bytes if needed"""
+    # Truncate password to 72 bytes to prevent bcrypt error
+    password_bytes = password.encode('utf-8')[:72]
+    return pwd_context.hash(password_bytes.decode('utf-8'))
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """Verify a password against its hash"""
-    return pwd_context.verify(plain_password, hashed_password)
+    # Truncate to 72 bytes for verification too
+    password_bytes = plain_password.encode('utf-8')[:72]
+    return pwd_context.verify(password_bytes.decode('utf-8'), hashed_password)
 
 def create_access_token(data: dict) -> str:
     """Create JWT access token"""
