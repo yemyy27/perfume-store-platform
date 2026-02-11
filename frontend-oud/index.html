@@ -767,10 +767,12 @@
     </div>
 
     <script>
-        const API_BASE = {
-            product: 'https://product-service-392366394996.us-central1.run.app',
-            user: 'https://user-service-392366394996.us-central1.run.app',
-            order: 'https://order-service-392366394996.us-central1.run.app'
+        // Use window.APP_CONFIG if available (injected at runtime), otherwise detect environment
+        const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+        const API_BASE = window.APP_CONFIG || {
+            product: isLocal ? 'http://localhost:8001' : 'https://product-service-392366394996.us-central1.run.app',
+            user: isLocal ? 'http://localhost:8003' : 'https://user-service-392366394996.us-central1.run.app',
+            order: isLocal ? 'http://localhost:8002' : 'https://order-service-392366394996.us-central1.run.app'
         };
 
         let authToken = localStorage.getItem('authToken') || '';

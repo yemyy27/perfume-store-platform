@@ -1,0 +1,85 @@
+version: "3.9"
+
+services:
+  product-service:
+    build:
+      context: ../../applications/product-service
+      dockerfile: Dockerfile
+    ports:
+      - "8001:8080"
+    environment:
+      PORT: "8080"
+      CORS_ORIGINS: "http://localhost:8080,http://localhost:3000,http://127.0.0.1:8080"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+      - perfume-net
+
+  user-service:
+    build:
+      context: ../../applications/user-service
+      dockerfile: Dockerfile
+    ports:
+      - "8003:8080"
+    environment:
+      PORT: "8080"
+      JWT_SECRET_KEY: "local-dev-secret-key-not-for-production"
+      CORS_ORIGINS: "http://localhost:8080,http://localhost:3000,http://127.0.0.1:8080"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+      - perfume-net
+
+  order-service:
+    build:
+      context: ../../applications/order-service
+      dockerfile: Dockerfile
+    ports:
+      - "8002:8080"
+    environment:
+      PORT: "8080"
+      JWT_SECRET_KEY: "local-dev-secret-key-not-for-production"
+      PRODUCT_SERVICE_URL: "http://product-service:8080"
+      USER_SERVICE_URL: "http://user-service:8080"
+      CORS_ORIGINS: "http://localhost:8080,http://localhost:3000,http://127.0.0.1:8080"
+    depends_on:
+      product-service:
+        condition: service_healthy
+      user-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+      - perfume-net
+
+  frontend:
+    build:
+      context: ../../frontend-oud
+      dockerfile: Dockerfile
+    ports:
+      - "8080:80"
+    depends_on:
+      product-service:
+        condition: service_healthy
+      user-service:
+        condition: service_healthy
+      order-service:
+        condition: service_healthy
+    networks:
+      - perfume-net
+
+networks:
+  perfume-net:
+    driver: bridge
