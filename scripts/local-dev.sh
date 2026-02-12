@@ -58,7 +58,8 @@ pip install --quiet \
     "pyjwt==2.8.0" \
     "bcrypt==4.1.2" \
     "python-multipart==0.0.6" \
-    "httpx==0.25.2"
+    "httpx==0.25.2" \
+    "sqlalchemy==2.0.23"
 
 echo -e "${GREEN}Dependencies installed.${NC}"
 echo ""

@@ -28,5 +28,8 @@ venv/
 .venv/
 .env
 
+# Database
+*.db
+
 # Logs
 *.log

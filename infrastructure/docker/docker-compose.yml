@@ -1,6 +1,24 @@
 version: "3.9"
 
 services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: perfume_dev
+      POSTGRES_USER: perfume_app
+      POSTGRES_PASSWORD: devpassword
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U perfume_app -d perfume_dev"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - perfume-net
+
   product-service:
     build:
       context: ../../applications/product-service
@@ -9,13 +27,17 @@ services:
       - "8001:8080"
     environment:
       PORT: "8080"
+      DATABASE_URL: "postgresql://perfume_app:devpassword@postgres:5432/perfume_dev"
       CORS_ORIGINS: "http://localhost:8080,http://localhost:3000,http://127.0.0.1:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')"]
       interval: 10s
       timeout: 5s
       retries: 3
-      start_period: 10s
+      start_period: 15s
     networks:
       - perfume-net
 
@@ -27,14 +49,18 @@ services:
       - "8003:8080"
     environment:
       PORT: "8080"
+      DATABASE_URL: "postgresql://perfume_app:devpassword@postgres:5432/perfume_dev"
       JWT_SECRET_KEY: "local-dev-secret-key-not-for-production"
       CORS_ORIGINS: "http://localhost:8080,http://localhost:3000,http://127.0.0.1:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')"]
       interval: 10s
       timeout: 5s
       retries: 3
-      start_period: 10s
+      start_period: 15s
     networks:
       - perfume-net
 
@@ -46,11 +72,14 @@ services:
       - "8002:8080"
     environment:
       PORT: "8080"
+      DATABASE_URL: "postgresql://perfume_app:devpassword@postgres:5432/perfume_dev"
       JWT_SECRET_KEY: "local-dev-secret-key-not-for-production"
       PRODUCT_SERVICE_URL: "http://product-service:8080"
       USER_SERVICE_URL: "http://user-service:8080"
       CORS_ORIGINS: "http://localhost:8080,http://localhost:3000,http://127.0.0.1:8080"
     depends_on:
+      postgres:
+        condition: service_healthy
       product-service:
         condition: service_healthy
       user-service:
@@ -60,7 +89,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 3
-      start_period: 10s
+      start_period: 15s
     networks:
       - perfume-net
 
@@ -79,6 +108,9 @@ services:
         condition: service_healthy
     networks:
       - perfume-net
+
+volumes:
+  pgdata:
 
 networks:
   perfume-net:

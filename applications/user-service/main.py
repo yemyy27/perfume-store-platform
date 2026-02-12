@@ -1,5 +1,6 @@
 from fastapi import FastAPI, HTTPException, Depends, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr
 from typing import List
 from datetime import datetime, timedelta
@@ -8,11 +9,13 @@ import os
 import jwt
 import bcrypt
 
-app = FastAPI(title="User Service", version="1.0.0")
+from database import init_db, get_db, User as UserModel
+from sqlalchemy.orm import Session
+
+app = FastAPI(title="User Service", version="2.0.0")
 
 # CORS configuration
 CORS_ORIGINS = os.environ.get("CORS_ORIGINS", "http://localhost:8080,http://localhost:3000").split(",")
-from fastapi.middleware.cors import CORSMiddleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ORIGINS,
@@ -26,7 +29,7 @@ ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60
 
 security = HTTPBearer()
-users_db = []
+
 
 class UserRegister(BaseModel):
     email: EmailStr
@@ -48,6 +51,7 @@ class Token(BaseModel):
     access_token: str
     token_type: str
 
+
 def hash_password(password: str) -> str:
     pwd_bytes = password.encode('utf-8')[:72]
     salt = bcrypt.gensalt()
@@ -64,78 +68,79 @@ def create_access_token(data: dict) -> str:
     to_encode.update({"exp": expire})
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
-def get_user_by_email(email: str):
-    return next((u for u in users_db if u["email"] == email), None)
 
-async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
+async def get_current_user(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    db: Session = Depends(get_db),
+):
     try:
         token = credentials.credentials
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         email = payload.get("sub")
         if not email:
             raise HTTPException(status_code=401, detail="Invalid token")
-        user = get_user_by_email(email)
+        user = db.query(UserModel).filter(UserModel.email == email).first()
         if not user:
             raise HTTPException(status_code=401, detail="User not found")
         return user
-    except:
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Token has expired")
+    except jwt.PyJWTError:
         raise HTTPException(status_code=401, detail="Invalid token")
+
+
+@app.on_event("startup")
+def on_startup():
+    init_db()
+
 
 @app.get("/health")
 async def health_check():
-    return {"status": "healthy", "service": "user-service"}
+    return {"status": "healthy", "service": "user-service", "version": "2.0.0"}
 
 @app.post("/api/auth/register", response_model=User, status_code=201)
-async def register(user: UserRegister):
-    if get_user_by_email(user.email):
+async def register(user: UserRegister, db: Session = Depends(get_db)):
+    existing = db.query(UserModel).filter(UserModel.email == user.email).first()
+    if existing:
         raise HTTPException(status_code=400, detail="Email already registered")
-    
-    new_user = {
-        "id": len(users_db) + 1,
-        "email": user.email,
-        "password": hash_password(user.password),
-        "full_name": user.full_name,
-        "created_at": datetime.utcnow(),
-        "is_active": True
-    }
-    users_db.append(new_user)
-    
-    return {
-        "id": new_user["id"],
-        "email": new_user["email"],
-        "full_name": new_user["full_name"],
-        "created_at": new_user["created_at"],
-        "is_active": new_user["is_active"]
-    }
+
+    new_user = UserModel(
+        email=user.email,
+        password=hash_password(user.password),
+        full_name=user.full_name,
+    )
+    db.add(new_user)
+    db.commit()
+    db.refresh(new_user)
+
+    return new_user.to_dict()
 
 @app.post("/api/auth/login", response_model=Token)
-async def login(credentials: UserLogin):
-    user = get_user_by_email(credentials.email)
-    if not user or not verify_password(credentials.password, user["password"]):
+async def login(credentials: UserLogin, db: Session = Depends(get_db)):
+    user = db.query(UserModel).filter(UserModel.email == credentials.email).first()
+    if not user or not verify_password(credentials.password, user.password):
         raise HTTPException(status_code=401, detail="Incorrect email or password")
-    
-    access_token = create_access_token(data={"sub": user["email"]})
+
+    access_token = create_access_token(data={"sub": user.email})
     return {"access_token": access_token, "token_type": "bearer"}
 
 @app.get("/api/users/me", response_model=User)
-async def get_me(current_user = Depends(get_current_user)):
-    return {
-        "id": current_user["id"],
-        "email": current_user["email"],
-        "full_name": current_user["full_name"],
-        "created_at": current_user["created_at"],
-        "is_active": current_user["is_active"]
-    }
+async def get_me(current_user: UserModel = Depends(get_current_user)):
+    return current_user.to_dict()
 
 @app.get("/api/users")
-async def list_users():
-    return [{"id": u["id"], "email": u["email"], "full_name": u["full_name"], 
-             "created_at": u["created_at"], "is_active": u["is_active"]} 
-            for u in users_db]
+async def list_users(db: Session = Depends(get_db)):
+    users = db.query(UserModel).all()
+    return [u.to_dict() for u in users]
 
 @app.get("/")
 async def root():
-    return {"service": "User Service", "version": "1.0.0", "status": "running"}
+    return {
+        "service": "User Service",
+        "version": "2.0.0",
+        "status": "running",
+        "database": "PostgreSQL" if "postgresql" in os.environ.get("DATABASE_URL", "") else "SQLite",
+    }
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
